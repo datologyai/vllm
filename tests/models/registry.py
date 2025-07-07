@@ -406,6 +406,9 @@ _MULTIMODAL_EXAMPLE_MODELS = {
                                         trust_remote_code=True),
     "PixtralForConditionalGeneration": _HfExamplesInfo("mistralai/Pixtral-12B-2409",  # noqa: E501
                                                        tokenizer_mode="mistral"),
+    "PrismaticVLMForCausalLM": _HfExamplesInfo("TRI-ML/prismatic-vlms",
+                                               trust_remote_code=True,
+                                               is_available_online=False),  # noqa: E501
     "QwenVLForConditionalGeneration": _HfExamplesInfo("Qwen/Qwen-VL",
                                                       extras={"chat": "Qwen/Qwen-VL-Chat"},  # noqa: E501
                                                       trust_remote_code=True,

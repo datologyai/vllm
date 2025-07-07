@@ -17,6 +17,9 @@ Info:
     [mm_processing](../../../design/mm_processing.html)
 """
 
+# PrismaticVLM processor registration is moved to avoid circular imports
+# This will be handled by a lazy registration pattern
+
 __all__ = [
     "BatchedTensorInputs",
     "ModalityData",
