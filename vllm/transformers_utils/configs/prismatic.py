@@ -100,6 +100,10 @@ class PrismaticConfig(PretrainedConfig):
         # Training parameters
         self.gradient_checkpointing = gradient_checkpointing
         
+        # Set architectures for model registry
+        if "architectures" not in kwargs:
+            kwargs["architectures"] = ["PrismaticForConditionalGeneration"]
+        
         super().__init__(**kwargs)
     
     @property
@@ -134,27 +138,11 @@ class PrismaticConfig(PretrainedConfig):
         )
         return cls.from_dict(config_dict, **kwargs)
     
-    def get_text_config(self) -> Dict[str, Any]:
+    def get_text_config(self):
         """Get text model configuration."""
-        return {
-            "vocab_size": self.vocab_size,
-            "hidden_size": self.hidden_size,
-            "intermediate_size": self.intermediate_size,
-            "num_hidden_layers": self.num_hidden_layers,
-            "num_attention_heads": self.num_attention_heads,
-            "num_key_value_heads": self.num_key_value_heads,
-            "hidden_act": self.hidden_act,
-            "max_position_embeddings": self.max_position_embeddings,
-            "initializer_range": self.initializer_range,
-            "rms_norm_eps": self.rms_norm_eps,
-            "use_cache": self.use_cache,
-            "tie_word_embeddings": self.tie_word_embeddings,
-            "rope_theta": self.rope_theta,
-            "use_sliding_window": self.use_sliding_window,
-            "sliding_window": self.sliding_window,
-            "max_window_layers": self.max_window_layers,
-            "attention_dropout": self.attention_dropout,
-        }
+        # Return self for PrismaticVLM since it's a unified architecture
+        # where the main config contains the text model parameters
+        return self
     
     def get_vision_config(self) -> Dict[str, Any]:
         """Get vision model configuration."""
