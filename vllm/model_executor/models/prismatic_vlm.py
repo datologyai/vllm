@@ -11,7 +11,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from vllm.config import VllmConfig
-from vllm.logger import init_logger
 from vllm.model_executor.layers.activation import get_act_fn
 from vllm.model_executor.layers.linear import (ColumnParallelLinear,
                                                RowParallelLinear)
@@ -30,8 +29,6 @@ from .interfaces import SupportsMultiModal
 from .utils import (AutoWeightsLoader, WeightsMapper, make_layers,
                     maybe_prefix, merge_multimodal_embeddings,
                     init_vllm_registered_model)
-
-logger = init_logger(__name__)
 
 # Try to import Prismatic library from standard installation or environment
 # Note: Prismatic should be properly installed as a package, not added to sys.path
@@ -295,7 +292,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
             
             # Check if this is a Prismatic-style checkpoint with component keys
             if isinstance(model_state_dict, dict) and 'projector' in model_state_dict and 'llm_backbone' in model_state_dict:
-                logger.info("Using Prismatic component-wise loading")
                 loaded_weights = set()
                 
                 try:
@@ -306,18 +302,13 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                         if PRISMATIC_AVAILABLE:
                             # Use actual Prismatic vision backbone loading
                             missing_keys, unexpected_keys = self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
-                            # Log only if there are significant issues
-                            if missing_keys:
-                                logger.warning(f"Vision backbone missing keys: {len(missing_keys)} keys")
-                            if unexpected_keys:
-                                logger.warning(f"Vision backbone unexpected keys: {len(unexpected_keys)} keys")
                             
                             # Ensure vision backbone is moved to correct device and dtype after loading weights
                             try:
                                 device = next(self.language_model.parameters()).device
                                 self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
-                            except Exception as e:
-                                logger.warning(f"Failed to move vision backbone to device: {e}")
+                            except Exception:
+                                pass  # Continue if device move fails
                             
                             loaded_weights.update(vision_state_dict.keys())
                         else:
@@ -348,17 +339,13 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                                     clean_projector_state_dict[name] = param
                             
                             missing_keys, unexpected_keys = self.projector.load_state_dict(clean_projector_state_dict, strict=False)
-                            if missing_keys:
-                                logger.warning(f"Projector missing keys: {len(missing_keys)} keys")
-                            if unexpected_keys:
-                                logger.warning(f"Projector unexpected keys: {len(unexpected_keys)} keys")
                             
                             # Ensure projector is moved to correct device and dtype after loading weights
                             try:
                                 device = next(self.language_model.parameters()).device
                                 self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
-                            except Exception as e:
-                                logger.warning(f"Failed to move projector to device: {e}")
+                            except Exception:
+                                pass  # Continue if device move fails
                             
                             loaded_weights.update(clean_projector_state_dict.keys())
                         else:
@@ -384,22 +371,20 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                                 mapped_name = name.replace("llm.", "")
                                 compatible_llm_weights[mapped_name] = param
                         
-                        # Map LLM weights to vLLM format
                         if compatible_llm_weights:
                             # Use AutoWeightsLoader for LLM to handle QKV packing
                             llm_weights_list = [(name, param) for name, param in compatible_llm_weights.items()]
                             llm_loader = AutoWeightsLoader(self.language_model)
                             loaded_weights.update(llm_loader.load_weights(llm_weights_list))
                     
-                    logger.info(f"Prismatic component-wise loading completed, loaded {len(loaded_weights)} weights total")
                     return loaded_weights
                     
-                except Exception as e:
-                    logger.warning(f"Prismatic component-wise loading failed: {e}, falling back to original method")
+                except Exception:
+                    # Fall back to original method if component-wise loading fails
+                    pass
                     # Fall back to original method if component-wise loading fails
             
         # Fall back to original flattening approach if component-wise loading isn't applicable
-        logger.info("Using flattened weight loading (fallback)")
         return self._load_weights_fallback(weights_dict)
     
     def _load_weights_fallback(self, weights_dict: dict) -> set[str]:
@@ -436,7 +421,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                 mapped_name = name.replace("projector.mlp_projector.", "")
                 projector_weights.append((mapped_name, param))
         
-        logger.info(f"Fallback loading {len(llm_weights)} LLM weights, {len(vision_weights)} vision weights, {len(projector_weights)} projector weights")
         
         # Load weights for each component
         loaded_weights = set()
@@ -843,7 +827,7 @@ try:
         dummy_inputs=PrismaticDummyInputsBuilder,
     )(PrismaticVLMForCausalLM)
 
-except ImportError as e:
-    logger.warning(f"Failed to register PrismaticVLM multimodal processor: {e}")
-except Exception as e:
-    logger.warning(f"Error registering PrismaticVLM multimodal processor: {e}")
+except ImportError:
+    pass  # Multimodal processor registration failed
+except Exception:
+    pass  # Multimodal processor registration failed
