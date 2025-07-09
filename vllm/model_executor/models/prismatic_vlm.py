@@ -5,6 +5,7 @@ from typing import Iterable, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from vllm.config import VllmConfig
 from vllm.model_executor.sampling_metadata import SamplingMetadata
@@ -16,9 +17,10 @@ from .interfaces import SupportsMultiModal
 from .utils import (AutoWeightsLoader, maybe_prefix, merge_multimodal_embeddings,
                     init_vllm_registered_model)
 
-# TODO: Replace with proper package import
+import sys
+sys.path.append('/home/ubuntu/datopenqwen/prismatic-vlms')
 
-from prismatic.util.nn_utils import AvgPoolProjector, MLPProjector, LinearProjector
+from prismatic.util.nn_utils import MLPProjector, LinearProjector
 from prismatic.models.materialize import get_vision_backbone_and_transform
 
 
@@ -290,9 +292,32 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         return None
 
 
-
-
-
+class AvgPoolProjector(nn.Module):
+    def __init__(self, query_num: int, mm_hidden_size: int, llm_hidden_size: int):
+        super().__init__()
+        self.query_num = query_num
+        self.mm_hidden_size = mm_hidden_size
+        self.llm_hidden_size = llm_hidden_size
+        
+        self.add_module("0", nn.Linear(mm_hidden_size, llm_hidden_size))
+        self.add_module("1", nn.GELU())
+        self.add_module("2", nn.Linear(llm_hidden_size, llm_hidden_size))
+        
+    def forward(self, vision_features: torch.Tensor) -> torch.Tensor:
+        _, num_patches, _ = vision_features.shape
+        
+        if num_patches != self.query_num:
+            pooled_features = F.adaptive_avg_pool1d(
+                vision_features.transpose(1, 2), self.query_num
+            ).transpose(1, 2)
+        else:
+            pooled_features = vision_features
+        
+        x = getattr(self, "0")(pooled_features)
+        x = getattr(self, "1")(x)
+        projected_features = getattr(self, "2")(x)
+        
+        return projected_features
 
 
 from vllm.multimodal.prismatic_processor import (
