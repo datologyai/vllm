@@ -8,18 +8,14 @@ from PIL import Image
 from transformers import BatchFeature
 import torchvision.transforms as transforms
 
-from vllm.logger import init_logger
 from vllm.multimodal.processing import (BaseProcessingInfo, BaseMultiModalProcessor, 
                                         PromptUpdate, PromptReplacement)
 from vllm.multimodal.profiling import BaseDummyInputsBuilder
 from vllm.multimodal.inputs import MultiModalFieldConfig, MultiModalKwargs
 from vllm.multimodal.parse import MultiModalDataItems
 
-logger = init_logger(__name__)
-
 
 class PrismaticProcessingInfo(BaseProcessingInfo):
-    
     def get_supported_mm_limits(self) -> Dict[str, int]:
         return {"image": 1}
     
@@ -34,19 +30,14 @@ class PrismaticProcessingInfo(BaseProcessingInfo):
 
 
 class PrismaticDummyInputsBuilder(BaseDummyInputsBuilder[PrismaticProcessingInfo]):
-    
     def get_dummy_mm_data(self, mm_counts: Dict[str, int]) -> Dict[str, Any]:
         num_images = mm_counts.get("image", 1)
         dummy_image = Image.new("RGB", (378, 378), color="black")
-        return {
-            "image": [dummy_image] * num_images
-        }
+        return {"image": [dummy_image] * num_images}
     
     def get_dummy_text(self, mm_counts: Dict[str, int]) -> str:
         num_images = mm_counts.get("image", 1)
-        image_tokens = "<image>" * num_images
-        dummy_text = image_tokens + " dummy text"
-        return dummy_text
+        return "<image>" * num_images + " dummy text"
     
     def get_dummy_processor_inputs(
         self,
@@ -70,7 +61,6 @@ class PrismaticDummyInputsBuilder(BaseDummyInputsBuilder[PrismaticProcessingInfo
 
 
 class PrismaticMultiModalProcessor(BaseMultiModalProcessor[PrismaticProcessingInfo]):
-    
     def __init__(self, info, dummy_inputs_builder, cache=None, **kwargs):
         super().__init__(info, dummy_inputs_builder, cache=cache)
         
@@ -150,12 +140,9 @@ class PrismaticMultiModalProcessor(BaseMultiModalProcessor[PrismaticProcessingIn
         
         image_token_id = None
         
-        try:
-            hf_config = self.info.get_hf_config()
-            if hasattr(hf_config, 'image_token_index'):
-                image_token_id = hf_config.image_token_index
-        except:
-            pass
+        hf_config = self.info.get_hf_config()
+        if hasattr(hf_config, 'image_token_index'):
+            image_token_id = hf_config.image_token_index
         
         if image_token_id is None:
             for token_id, token_obj in tokenizer.added_tokens_decoder.items():
