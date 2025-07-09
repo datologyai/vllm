@@ -304,11 +304,8 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                             missing_keys, unexpected_keys = self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
                             
                             # Ensure vision backbone is moved to correct device and dtype after loading weights
-                            try:
-                                device = next(self.language_model.parameters()).device
-                                self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
-                            except Exception:
-                                pass  # Continue if device move fails
+                            device = next(self.language_model.parameters()).device
+                            self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
                             
                             loaded_weights.update(vision_state_dict.keys())
                         else:
@@ -341,11 +338,8 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                             missing_keys, unexpected_keys = self.projector.load_state_dict(clean_projector_state_dict, strict=False)
                             
                             # Ensure projector is moved to correct device and dtype after loading weights
-                            try:
-                                device = next(self.language_model.parameters()).device
-                                self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
-                            except Exception:
-                                pass  # Continue if device move fails
+                            device = next(self.language_model.parameters()).device
+                            self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
                             
                             loaded_weights.update(clean_projector_state_dict.keys())
                         else:
@@ -382,7 +376,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                 except Exception:
                     # Fall back to original method if component-wise loading fails
                     pass
-                    # Fall back to original method if component-wise loading fails
             
         # Fall back to original flattening approach if component-wise loading isn't applicable
         return self._load_weights_fallback(weights_dict)
@@ -827,7 +820,5 @@ try:
         dummy_inputs=PrismaticDummyInputsBuilder,
     )(PrismaticVLMForCausalLM)
 
-except ImportError:
-    pass  # Multimodal processor registration failed
-except Exception:
+except (ImportError, Exception):
     pass  # Multimodal processor registration failed
