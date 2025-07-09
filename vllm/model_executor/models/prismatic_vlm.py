@@ -21,14 +21,8 @@ from .utils import (AutoWeightsLoader, maybe_prefix, merge_multimodal_embeddings
 
 sys.path.append('/home/ubuntu/datopenqwen/prismatic-vlms')
 
-try:
-    from prismatic.models.backbones.vision import VisionBackbone
-    from prismatic.models.backbones.llm import LLMBackbone
-    from prismatic.util.nn_utils import AvgPoolProjector, MLPProjector, LinearProjector
-    from prismatic.models.materialize import get_vision_backbone_and_transform, get_llm_backbone_and_tokenizer
-    PRISMATIC_AVAILABLE = True
-except ImportError:
-    PRISMATIC_AVAILABLE = False
+from prismatic.util.nn_utils import AvgPoolProjector, MLPProjector, LinearProjector
+from prismatic.models.materialize import get_vision_backbone_and_transform
 
 
 class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
@@ -51,12 +45,8 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         
         text_config_obj = PretrainedConfig(**text_config_dict)
         
-        if PRISMATIC_AVAILABLE:
-            self.vision_backbone = self._create_prismatic_vision_backbone()
-            self.projector = self._create_prismatic_projector()
-        else:
-            self.vision_backbone = self._create_vision_tower()
-            self.projector = self._create_projector()
+        self.vision_backbone = self._create_prismatic_vision_backbone()
+        self.projector = self._create_prismatic_projector()
         
         self.language_model = init_vllm_registered_model(
             vllm_config=vllm_config,
@@ -70,9 +60,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         self._setup_image_token_handling()
     
     def _create_prismatic_vision_backbone(self):
-        if not PRISMATIC_AVAILABLE:
-            raise ImportError("Prismatic library not available")
-        
         vision_backbone_id = self.config.vision_backbone_id
         vision_backbone, _ = get_vision_backbone_and_transform(
             vision_backbone_id=vision_backbone_id,
@@ -83,9 +70,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         return vision_backbone
     
     def _create_prismatic_projector(self):
-        if not PRISMATIC_AVAILABLE:
-            raise ImportError("Prismatic library not available")
-        
         vision_hidden_size = self.config.vision_embed_dim
         llm_hidden_size = self.config.hidden_size
         arch_specifier = getattr(self.config, 'arch_specifier', '729-avgpool')
@@ -111,19 +95,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         projector = projector.to(dtype=torch.bfloat16)
         return projector
     
-    def _create_vision_tower(self):
-        return SigLIP2VisionBackbone(self.config)
-    
-    def _create_projector(self):
-        vision_hidden_size = self.config.vision_embed_dim
-        llm_hidden_size = self.config.hidden_size
-        
-        return AvgPoolProjector(
-            query_num=self.config.num_image_tokens,
-            mm_hidden_size=vision_hidden_size,
-            llm_hidden_size=llm_hidden_size
-        )
-    
     def _setup_image_token_handling(self):
         if not hasattr(self.config, 'image_token_index'):
             self.config.image_token_index = 151655
@@ -144,13 +115,9 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         if image_input is None:
             return None
         
-        if PRISMATIC_AVAILABLE:
-            image_input = image_input.to(dtype=torch.bfloat16)
-            vision_features = self.vision_backbone(image_input)
-            vision_embeddings = self.projector(vision_features)
-        else:
-            vision_features = self.vision_backbone(image_input)
-            vision_embeddings = self.projector(vision_features)
+        image_input = image_input.to(dtype=torch.bfloat16)
+        vision_features = self.vision_backbone(image_input)
+        vision_embeddings = self.projector(vision_features)
         
         return vision_embeddings
     
@@ -216,50 +183,28 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
                 if 'vision_backbone' in model_state_dict:
                     vision_state_dict = model_state_dict['vision_backbone']
                     
-                    if PRISMATIC_AVAILABLE:
-                        missing_keys, unexpected_keys = self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
-                        
-                        device = next(self.language_model.parameters()).device
-                        self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
-                        loaded_weights.update(vision_state_dict.keys())
-                    else:
-                        compatible_vision_weights = {}
-                        for name, param in vision_state_dict.items():
-                            mapped_name = self._map_vision_weight_name(f"vision_backbone.{name}")
-                            if mapped_name:
-                                compatible_vision_weights[mapped_name] = param
-                        
-                        if compatible_vision_weights:
-                            vision_loader = AutoWeightsLoader(self.vision_backbone)
-                            loaded_weights.update(vision_loader.load_weights(list(compatible_vision_weights.items())))
+                    self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
+                    
+                    device = next(self.language_model.parameters()).device
+                    self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
+                    loaded_weights.update(vision_state_dict.keys())
                 
                 if 'projector' in model_state_dict:
                     projector_state_dict = model_state_dict['projector']
                     
-                    if PRISMATIC_AVAILABLE:
-                        clean_projector_state_dict = {}
-                        for name, param in projector_state_dict.items():
-                            if name.startswith("mlp_projector."):
-                                clean_name = name.replace("mlp_projector.", "")
-                                clean_projector_state_dict[clean_name] = param
-                            else:
-                                clean_projector_state_dict[name] = param
-                        
-                        missing_keys, unexpected_keys = self.projector.load_state_dict(clean_projector_state_dict, strict=False)
-                        
-                        device = next(self.language_model.parameters()).device
-                        self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
-                        loaded_weights.update(clean_projector_state_dict.keys())
-                    else:
-                        compatible_projector_weights = {}
-                        for name, param in projector_state_dict.items():
-                            if name.startswith("mlp_projector."):
-                                mapped_name = name.replace("mlp_projector.", "")
-                                compatible_projector_weights[mapped_name] = param
-                        
-                        if compatible_projector_weights:
-                            projector_loader = AutoWeightsLoader(self.projector)
-                            loaded_weights.update(projector_loader.load_weights(list(compatible_projector_weights.items())))
+                    clean_projector_state_dict = {}
+                    for name, param in projector_state_dict.items():
+                        if name.startswith("mlp_projector."):
+                            clean_name = name.replace("mlp_projector.", "")
+                            clean_projector_state_dict[clean_name] = param
+                        else:
+                            clean_projector_state_dict[name] = param
+                    
+                    self.projector.load_state_dict(clean_projector_state_dict, strict=False)
+                    
+                    device = next(self.language_model.parameters()).device
+                    self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
+                    loaded_weights.update(clean_projector_state_dict.keys())
                 
                 if 'llm_backbone' in model_state_dict:
                     llm_state_dict = model_state_dict['llm_backbone']
@@ -365,128 +310,6 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         
         return None
 
-
-
-class SigLIP2VisionBackbone(nn.Module):
-    
-    def __init__(self, config: PrismaticConfig):
-        super().__init__()
-        self.config = config
-        
-        self.patch_embedding = nn.Conv2d(
-            in_channels=3,
-            out_channels=config.vision_embed_dim,
-            kernel_size=config.patch_size,
-            stride=config.patch_size,
-            bias=True
-        )
-        
-        self.vision_layers = nn.ModuleList([
-            SigLIP2VisionLayer(config) for _ in range(config.vision_num_hidden_layers)
-        ])
-        
-        self.layer_norm = nn.LayerNorm(config.vision_embed_dim)
-        
-        num_patches = (config.image_size // config.patch_size) ** 2
-        self.position_embeddings = nn.Parameter(
-            torch.randn(1, num_patches, config.vision_embed_dim) * 0.02
-        )
-        
-    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        if pixel_values.dim() == 5:
-            pixel_values = pixel_values.view(-1, *pixel_values.shape[2:])
-        elif pixel_values.dim() != 4:
-            raise ValueError(f"Expected 4D or 5D pixel_values, got {pixel_values.dim()}D with shape {pixel_values.shape}")
-        
-        pixel_values = pixel_values.to(self.patch_embedding.weight.dtype)
-        
-        patch_embeddings = self.patch_embedding(pixel_values)
-        
-        batch_size = patch_embeddings.size(0)
-        patch_embeddings = patch_embeddings.flatten(2).transpose(1, 2)
-        
-        patch_embeddings = patch_embeddings + self.position_embeddings
-        
-        for layer in self.vision_layers:
-            patch_embeddings = layer(patch_embeddings)
-        
-        patch_embeddings = self.layer_norm(patch_embeddings)
-        
-        return patch_embeddings
-
-
-class SigLIP2VisionLayer(nn.Module):
-    
-    def __init__(self, config: PrismaticConfig):
-        super().__init__()
-        self.config = config
-        
-        self.attention = SigLIP2Attention(config)
-        
-        self.mlp = nn.Sequential(
-            nn.Linear(config.vision_embed_dim, config.vision_intermediate_size),
-            get_act_fn(config.vision_hidden_act),
-            nn.Linear(config.vision_intermediate_size, config.vision_embed_dim)
-        )
-        
-        self.attention_norm = nn.LayerNorm(config.vision_embed_dim)
-        self.mlp_norm = nn.LayerNorm(config.vision_embed_dim)
-        
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        attn_output = self.attention(hidden_states)
-        hidden_states = hidden_states + attn_output
-        hidden_states = self.attention_norm(hidden_states)
-        
-        mlp_output = self.mlp(hidden_states)
-        hidden_states = hidden_states + mlp_output
-        hidden_states = self.mlp_norm(hidden_states)
-        
-        return hidden_states
-
-
-class SigLIP2Attention(nn.Module):
-    
-    def __init__(self, config: PrismaticConfig):
-        super().__init__()
-        self.config = config
-        self.embed_dim = config.vision_embed_dim
-        self.num_heads = config.vision_num_attention_heads
-        self.head_dim = self.embed_dim // self.num_heads
-        
-        if self.head_dim * self.num_heads != self.embed_dim:
-            raise ValueError(f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`: {self.num_heads}).")
-        
-        self.scale = self.head_dim ** -0.5
-        
-        self.in_proj = nn.Linear(self.embed_dim, 3 * self.embed_dim, bias=True)
-        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        
-    @property
-    def in_proj_weight(self):
-        return self.in_proj.weight
-        
-    @property
-    def in_proj_bias(self):
-        return self.in_proj.bias
-    
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len, embed_dim = hidden_states.shape
-        
-        qkv = self.in_proj(hidden_states)
-        qkv = qkv.reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)
-        
-        q, k, v = qkv.unbind(0)
-        
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        
-        attn_output = torch.matmul(attn_weights, v)
-        
-        attn_output = attn_output.transpose(1, 2).reshape(batch_size, seq_len, embed_dim)
-        attn_output = self.out_proj(attn_output)
-        
-        return attn_output
 
 
 class AvgPoolProjector(nn.Module):
