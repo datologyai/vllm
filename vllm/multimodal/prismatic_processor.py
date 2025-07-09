@@ -256,4 +256,5 @@ class PrismaticMultiModalProcessor(BaseMultiModalProcessor[PrismaticProcessingIn
         replacements, so we return False to let vLLM apply them via _get_prompt_updates.
         """
         return False
+
     

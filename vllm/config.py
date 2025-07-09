@@ -432,13 +432,11 @@ class ModelConfig:
         factors: list[Any] = []
         
         def safe_append(attr_name, default_value=None):
-            """Safely append attribute to factors, handling _MISSING_TYPE objects."""
+            """Safely append attribute to factors, handling missing attributes."""
             try:
                 value = getattr(self, attr_name)
-                # Check if this is a _MISSING_TYPE object by looking for memory address in string
-                value_str = str(value)
-                if 'at 0x' in value_str and '_MISSING_TYPE' in str(type(value)):
-                    # This is a default factory field that hasn't been initialized yet
+                # Check if this is a dataclass field that hasn't been initialized
+                if hasattr(value, '__class__') and value.__class__.__name__ == '_MISSING_TYPE':
                     factors.append(default_value)
                 else:
                     factors.append(value)
