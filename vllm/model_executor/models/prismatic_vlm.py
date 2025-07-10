@@ -59,7 +59,8 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
             vision_backbone_id=vision_backbone_id,
             image_resize_strategy="resize-naive"
         )
-        return vision_backbone.to(dtype=torch.bfloat16)
+        device = self.config.device_config.device if hasattr(self.config, "device_config") else "cuda"
+        return vision_backbone.to(device=device, dtype=torch.bfloat16)
     
     def _create_prismatic_projector(self):
         vision_hidden_size = self.config.vision_embed_dim
@@ -157,101 +158,55 @@ class PrismaticVLMForCausalLM(nn.Module, SupportsMultiModal):
         
         if 'model' in weights_dict and len(weights_dict) == 1:
             model_state_dict = weights_dict['model']
+        else: 
+            model_state_dict = weights_dict
             
-            if isinstance(model_state_dict, dict) and 'projector' in model_state_dict and 'llm_backbone' in model_state_dict:
-                loaded_weights = set()
+        if isinstance(model_state_dict, dict) and 'projector' in model_state_dict and 'llm_backbone' in model_state_dict:
+            loaded_weights = set()
+            
+            if 'vision_backbone' in model_state_dict:
+                vision_state_dict = model_state_dict['vision_backbone']
                 
-                if 'vision_backbone' in model_state_dict:
-                    vision_state_dict = model_state_dict['vision_backbone']
-                    
-                    self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
-                    
-                    device = next(self.language_model.parameters()).device
-                    self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
-                    loaded_weights.update(vision_state_dict.keys())
+                self.vision_backbone.load_state_dict(vision_state_dict, strict=False)
                 
-                if 'projector' in model_state_dict:
-                    projector_state_dict = model_state_dict['projector']
-                    
-                    clean_projector_state_dict = {}
-                    for name, param in projector_state_dict.items():
-                        if name.startswith("mlp_projector."):
-                            clean_name = name.replace("mlp_projector.", "")
-                            clean_projector_state_dict[clean_name] = param
-                        else:
-                            clean_projector_state_dict[name] = param
-                    
-                    self.projector.load_state_dict(clean_projector_state_dict, strict=False)
-                    
-                    device = next(self.language_model.parameters()).device
-                    self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
-                    loaded_weights.update(clean_projector_state_dict.keys())
+                device = next(self.language_model.parameters()).device
+                self.vision_backbone = self.vision_backbone.to(device=device, dtype=torch.bfloat16)
+                loaded_weights.update(vision_state_dict.keys())
+            
+            if 'projector' in model_state_dict:
+                projector_state_dict = model_state_dict['projector']
                 
-                if 'llm_backbone' in model_state_dict:
-                    llm_state_dict = model_state_dict['llm_backbone']
-                    
-                    compatible_llm_weights = {}
-                    for name, param in llm_state_dict.items():
-                        if name.startswith("llm."):
-                            mapped_name = name.replace("llm.", "")
-                            compatible_llm_weights[mapped_name] = param
-                    
-                    if compatible_llm_weights:
-                        llm_weights_list = [(name, param) for name, param in compatible_llm_weights.items()]
-                        llm_loader = AutoWeightsLoader(self.language_model)
-                        loaded_weights.update(llm_loader.load_weights(llm_weights_list))
+                clean_projector_state_dict = {}
+                for name, param in projector_state_dict.items():
+                    if name.startswith("mlp_projector."):
+                        clean_name = name.replace("mlp_projector.", "")
+                        clean_projector_state_dict[clean_name] = param
+                    else:
+                        clean_projector_state_dict[name] = param
                 
-                return loaded_weights
-        
-        return self._load_weights_fallback(weights_dict)
+                self.projector.load_state_dict(clean_projector_state_dict, strict=False)
+                
+                device = next(self.language_model.parameters()).device
+                self.projector = self.projector.to(device=device, dtype=torch.bfloat16)
+                loaded_weights.update(clean_projector_state_dict.keys())
+            
+            if 'llm_backbone' in model_state_dict:
+                llm_state_dict = model_state_dict['llm_backbone']
+                
+                compatible_llm_weights = {}
+                for name, param in llm_state_dict.items():
+                    if name.startswith("llm."):
+                        mapped_name = name.replace("llm.", "")
+                        compatible_llm_weights[mapped_name] = param
+                
+                if compatible_llm_weights:
+                    llm_weights_list = [(name, param) for name, param in compatible_llm_weights.items()]
+                    llm_loader = AutoWeightsLoader(self.language_model)
+                    loaded_weights.update(llm_loader.load_weights(llm_weights_list))
+            
+            return loaded_weights
     
-    def _load_weights_fallback(self, weights_dict: dict) -> set[str]:
-        flattened_weights = []
-        
-        def flatten_dict(d, prefix=""):
-            for key, value in d.items():
-                new_key = f"{prefix}.{key}" if prefix else key
-                if isinstance(value, dict):
-                    flatten_dict(value, new_key)
-                else:
-                    flattened_weights.append((new_key, value))
-        
-        if 'model' in weights_dict and len(weights_dict) == 1:
-            flatten_dict(weights_dict['model'])
-            weights = flattened_weights
-        
-        llm_weights = []
-        vision_weights = []
-        projector_weights = []
-        
-        for name, param in weights:
-            if name.startswith("llm_backbone.llm."):
-                mapped_name = name.replace("llm_backbone.llm.", "")
-                llm_weights.append((mapped_name, param))
-            elif name.startswith("vision_backbone.featurizer."):
-                mapped_name = self._map_vision_weight_name(name)
-                if mapped_name:
-                    vision_weights.append((mapped_name, param))
-            elif name.startswith("projector.mlp_projector."):
-                mapped_name = name.replace("projector.mlp_projector.", "")
-                projector_weights.append((mapped_name, param))
-        
-        loaded_weights = set()
-        
-        if llm_weights:
-            llm_loader = AutoWeightsLoader(self.language_model)
-            loaded_weights.update(llm_loader.load_weights(llm_weights))
-        
-        if vision_weights:
-            vision_loader = AutoWeightsLoader(self.vision_backbone)
-            loaded_weights.update(vision_loader.load_weights(vision_weights))
-        
-        if projector_weights:
-            projector_loader = AutoWeightsLoader(self.projector)
-            loaded_weights.update(projector_loader.load_weights(projector_weights))
-        
-        return loaded_weights
-    
+      
     def _map_vision_weight_name(self, name: str) -> str:
         name = name.replace("vision_backbone.featurizer.", "")
         
