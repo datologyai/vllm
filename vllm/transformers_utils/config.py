@@ -38,9 +38,10 @@ from vllm.transformers_utils.configs import (ChatGLMConfig, Cohere2Config,
                                              MiniMaxVL01Config, MllamaConfig,
                                              MLPSpeculatorConfig, MPTConfig,
                                              NemotronConfig, NVLM_D_Config,
-                                             OvisConfig, RWConfig,
-                                             SkyworkR1VChatConfig, SolarConfig,
-                                             Telechat2Config, UltravoxConfig)
+                                             OvisConfig, PrismaticConfig,
+                                             RWConfig, SkyworkR1VChatConfig,
+                                             SolarConfig, Telechat2Config,
+                                             UltravoxConfig)
 # yapf: enable
 from vllm.transformers_utils.configs.mistral import adapt_config_dict
 from vllm.transformers_utils.utils import check_gguf_file
@@ -94,6 +95,7 @@ _CONFIG_REGISTRY: dict[str, type[PretrainedConfig]] = {
     "nemotron": NemotronConfig,
     "NVLM_D": NVLM_D_Config,
     "ovis": OvisConfig,
+    "prismatic": PrismaticConfig,
     "solar": SolarConfig,
     "skywork_chat": SkyworkR1VChatConfig,
     "telechat": Telechat2Config,

@@ -263,7 +263,6 @@ class MultiModalProfiler(Generic[_I]):
 
         max_tokens_per_item = self.processing_info.get_mm_max_tokens_per_item(
             seq_len=seq_len,
-            mm_counts=mm_counts,
         )
         if max_tokens_per_item is not None:
             if mm_counts is None:

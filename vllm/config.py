@@ -429,22 +429,41 @@ class ModelConfig:
         the final hidden states.
         """
         factors: list[Any] = []
-        factors.append(self.model)
-        factors.append(self.dtype)
-        factors.append(self.quantization)
-        factors.append(self.revision)
-        factors.append(self.code_revision)
-        factors.append(self.max_model_len)
-        factors.append(self.max_logprobs)
-        factors.append(self.disable_sliding_window)
-        factors.append(self.trust_remote_code)
-        factors.append(self.generation_config)
-        factors.append(self.model_impl)
-        factors.append(self.override_generation_config)
-        factors.append(self.rope_scaling)
-        factors.append(self.rope_theta)
+        
+        def safe_append(attr_name, default_value=None):
+            """Safely append attribute to factors, handling _MISSING_TYPE objects."""
+            try:
+                value = getattr(self, attr_name)
+                # Check if this is a _MISSING_TYPE object by looking for memory address in string
+                value_str = str(value)
+                if 'at 0x' in value_str and '_MISSING_TYPE' in str(type(value)):
+                    # This is a default factory field that hasn't been initialized yet
+                    factors.append(default_value)
+                else:
+                    factors.append(value)
+            except AttributeError:
+                factors.append(default_value)
+        
+        safe_append('model', '')
+        safe_append('dtype', 'auto')
+        safe_append('quantization', None)
+        safe_append('revision', None)
+        safe_append('code_revision', None)
+        safe_append('max_model_len', None)
+        safe_append('max_logprobs', 20)
+        safe_append('disable_sliding_window', False)
+        safe_append('trust_remote_code', False)
+        safe_append('generation_config', 'auto')
+        safe_append('model_impl', 'auto')
+        safe_append('override_generation_config', {})
+        safe_append('rope_scaling', {})
+        safe_append('rope_theta', None)
+        
         # hf_config can control how the model looks!
-        factors.append(self.hf_config.to_json_string())
+        try:
+            factors.append(self.hf_config.to_json_string())
+        except AttributeError:
+            factors.append('')
         str_factors = str(factors)
         assert_hashable(str_factors)
         return hashlib.sha256(str(factors).encode()).hexdigest()

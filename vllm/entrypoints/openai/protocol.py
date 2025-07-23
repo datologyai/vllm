@@ -18,11 +18,17 @@ from openai.types.chat.chat_completion_message import (
     Annotation as OpenAIAnnotation)
 # yapf: enable
 from openai.types.responses import (ResponseInputParam, ResponseOutputItem,
-                                    ResponseOutputMessage, ResponsePrompt,
+                                    ResponseOutputMessage,
                                     ResponseStatus, ResponseTextConfig)
 from openai.types.responses.response import ToolChoice
 from openai.types.responses.tool import Tool
 from openai.types.shared import Metadata, Reasoning
+
+# Define ResponsePrompt as a fallback (removed in newer OpenAI versions)
+try:
+    from openai.types.responses import ResponsePrompt
+except ImportError:
+    ResponsePrompt = str  # Simple fallback type
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
                       ValidationInfo, field_validator, model_validator)
 from typing_extensions import TypeAlias

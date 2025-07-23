@@ -645,6 +645,18 @@ VLM_TEST_SETTINGS = {
         vllm_output_post_proc=model_utils.phi3v_vllm_to_hf_output,
         num_logprobs=10,
     ),
+    "prismatic_vlm": VLMTestInfo(
+        models=["TRI-ML/prismatic-vlms"],
+        test_type=VLMTestType.IMAGE,
+        prompt_formatter=lambda img_prompt: f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{img_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n", # noqa: E501
+        img_idx_to_prompt=lambda idx: "<image>",
+        max_model_len=4096,
+        max_num_seqs=2,
+        task="generate",
+        auto_cls=AutoModelForImageTextToText,
+        # Skip by default since model not readily available for testing
+        marks=[pytest.mark.skip("Model not available for testing")],
+    ),
     "pixtral_hf": VLMTestInfo(
         models=["nm-testing/pixtral-12b-FP8-dynamic"],
         test_type=(VLMTestType.IMAGE, VLMTestType.MULTI_IMAGE),
